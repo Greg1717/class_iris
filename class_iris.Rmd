@@ -1,0 +1,708 @@
+---
+title: "Classification - IRIS"
+output: 
+        html_document:
+                toc: true
+                toc_depth: 2
+                toc_float: true
+                number_sections: true
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Settings
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(ggplot2)
+library(lattice)
+library(doParallel)
+df <- iris
+```
+
+# Purpose
+
+- Create a kind of template for the future analysis of classification problems, implementing ideas from the books 'Applied Predictive Modeling' and 'Introduction to Statistical Learning'.
+
+# Review Data Set
+
+## Head
+
+```{r}
+head(df)
+```
+
+
+## Dimensions
+
+```{r}
+dim(df)
+```
+
+
+## Structure
+
+```{r cars}
+str(df)
+```
+
+
+## Summary
+
+```{r}
+summary(df)
+```
+
+
+## Potential Outliers Based on Percentiles
+
+```{r}
+lower_bound <- quantile(df$Sepal.Length, 0.025)
+upper_bound <- quantile(df$Sepal.Length, 0.975)
+outlier_df <- which(df$Sepal.Length < lower_bound | df$Sepal.Length > upper_bound)
+remove(lower_bound)
+remove(upper_bound)
+df[outlier_df,]
+remove(outlier_df)
+```
+
+
+## Remove Predictors with too many NAs (missing data)
+
+```{r echo=TRUE}
+df <- df[,colMeans(is.na(df)) < .9]
+dim(df)
+```
+
+
+## Near Zero Variance Predictors
+
+The identified near zero variance predictors are the following:
+
+```{r}
+# create a zero variance variable for demonstration purposes
+df$one <- 1
+near_zero_vars <- nearZeroVar(df)
+df[, near_zero_vars]
+```
+
+
+After the exclusion of near-zero-variance predictors the data set looks as follows:
+
+```{r}
+df <- df[, -c(near_zero_vars)]
+remove(near_zero_vars)
+head(df)
+```
+
+
+## Reduce Collinearity
+
+**Collinearity** is the situation where a pair of predictor variables have a substantial correlation with each other. In general, there are good reasons to avoid data with highly correlated predictors as it can result in **highly unstable models** and **degraded predictive performance**.
+
+
+### Plot Correlations
+
+The darker areas in the correlation plot show variables which are correlated with each other.
+```{r echo=TRUE}
+# filter on numeric variables (in this case exclude 'mpg' as it represents the outcome, not a predictor)
+predictors <- df[, -c(5)]
+# iris[, !sapply(iris, is.numeric)]
+# select non_numeric predictors, to be added back later
+predictors_non_numeric <- predictors[, !sapply(predictors, is.numeric)]
+predictors_numeric <- predictors[,sapply(predictors, is.numeric)]
+correlations <- cor(predictors_numeric)
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+```
+
+
+### Filter pairwise correlations
+
+Removing following predictors:
+
+```{r}
+highCorr <- findCorrelation(correlations, cutoff = 0.75)
+remove(correlations)
+head(predictors_numeric[highCorr])
+```
+
+
+### Remaining predictors
+
+```{r}
+###############################################################################
+# uncomment following line if desired
+###############################################################################
+# predictors_numeric <- predictors_numeric[, -highCorr]
+remove(highCorr)
+names(predictors_numeric)
+```
+
+### Dataset after removal of predictors
+
+```{r}
+df <- cbind(df[, names(df) %in% names(predictors_numeric)],
+            subset(df, select = "Species", drop = FALSE))
+remove(predictors_numeric)
+remove(predictors_non_numeric)
+head(df)
+```
+
+
+Dimension of dataset after removal of highly correlated predictors:
+
+```{r echo=TRUE}
+dim(df)
+```
+
+
+Review correlation plot again after removal of correlated predictors (reduced collinearity):
+
+```{r echo=TRUE}
+correlations <- cor(df[, -c(5)])
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+remove(correlations)
+remove(predictors)
+```
+The darker areas should be reduced as a result of having removed correlated predictors.
+
+
+## EDA
+
+### Histogram
+
+#### Base R
+
+```{r}
+# TODO continue development here
+# par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
+# plot(lm_df)
+# par(mfrow=c(1,1)) # Change back to 1 x 1
+hist(
+        x = df[,1],
+        xlab = "Count",
+        main = "Histogram of XXX",
+        breaks = sqrt(nrow(df))
+)
+```
+
+
+#### ggplot
+
+```{r}
+ggplot(df) +
+  aes(x = Sepal.Length) +
+  geom_histogram(bins = 5L, fill = "#0c4c8a") +
+  theme_minimal()
+```
+
+
+#### lattice
+
+```{r}
+# df_lattice <- df
+# convert to factor
+# df_lattice$vs <- as.factor(ifelse(test = df_lattice$vs == 0, yes = "v_shaped", no = "straight"))
+# plot
+lattice::histogram(~Sepal.Length | Species, data = df)
+```
+
+
+#### Lattice Density Plot
+
+```{r}
+lattice::densityplot(~Sepal.Length | Species, 
+                     data = df, 
+                     groups = Species, 
+                     plot.points = FALSE, 
+                     auto.key = TRUE)
+```
+
+
+### Scatter Plot
+
+#### Base R
+
+```{r}
+plot(
+        x = df$Sepal.Length,
+        y = df$Sepal.Width,
+        col = df$Species,
+        type = "p",
+        main = "Main Header"
+        # xlim = c(0,9),
+        # ylim = c(0,6)
+)
+```
+
+
+#### ggplot
+
+```{r}
+ggplot(data = df, aes(
+        x = Sepal.Length,
+        y = Sepal.Width,
+        # shape = vs,
+        colour = Species
+        # size = wt
+)) +
+        geom_point()
+```
+
+
+#### pairs()
+
+```{r}
+pairs(df)
+```
+
+
+#### caret::featurePlot - pairs
+
+```{r}
+caret::featurePlot(x = df, 
+            y = df$Species,
+            plot = "pairs")
+```
+
+
+#### ggpairs()
+
+```{r}
+library(GGally)
+ggpairs(data = df,progress = FALSE)
+```
+
+
+#### lattice
+
+```{r}
+xyplot(Sepal.Width ~ Sepal.Length | Species, 
+       data = df, 
+       main = "Lattice Scatter Plot in R", 
+       type = c("p", "g", "smooth"))
+```
+
+#### featurePlot()
+
+```{r}
+suppressWarnings(
+featurePlot(x = df[, -c(4,5)], 
+            y = df[,4], 
+            plot = "scatter",
+            type = c("p", "g", "smooth"),
+            layout = c(3, 2))
+)
+```
+
+
+##### SPLOM
+
+```{r}
+splom(df)
+```
+
+
+### Line Graph
+
+#### Base R
+
+```{r}
+# df_sorted <- df[order(df$Sepal.Length),]
+# plot(1:length(df_sorted$Sepal.Length), y = df$Sepal.Width)
+# lines(x = 1:length(df_sorted$Sepal.Length),
+#       y = df$Sepal.Width, 
+#       pch = 18, 
+#       col = "blue", 
+#       type = "b", 
+#       lty = 2)
+# # Add a legend to the plot
+# legend("topleft", 
+#        legend=c("Line 1"),
+#        col=c("blue"), 
+#        lty = 1:2, 
+#        cex=0.8)
+```
+
+
+#### ggplot
+
+```{r}
+# ggplot(data = df_sorted_mpg, aes(
+#         x = 1:length(df_sorted_mpg$mpg),
+#         y = mpg,
+#         colour = vs,
+#         # group = supp,
+#         # fill = xxx, 
+#         linetype = am
+# )) +
+#         geom_line() +
+#         ylim(0, max(df_sorted_mpg$mpg) * 1.1) +
+#         expand_limits(y = 0) +
+#         geom_point()
+# 
+# remove(df_sorted_mpg)
+```
+
+
+### Box Plot
+
+#### Base R
+
+```{r}
+boxplot(df[,-5]
+  # ylab = "Species"
+)
+```
+
+
+#### ggplot
+
+```{r}
+ggplot(df) +
+  aes(x = Species, y = Sepal.Length) +
+  geom_boxplot(fill = "#0c4c8a") +
+  theme_minimal()
+```
+
+
+Box Plot Outliers:
+
+```{r}
+# out <- boxplot.stats(df$mpg)$out
+# out_ind <- which(df$mpg %in% c(out))
+# remove(out)
+# df[out_ind, ]
+# remove(out_ind)
+```
+
+
+#### lattice
+
+```{r}
+# bwplot(Sepal.Length ~ Species | vs, df_lattice)
+bwplot(Sepal.Length ~ Species, df)
+```
+
+
+***
+
+# KNN (Caret) 
+
+## Split Dataset
+
+```{r}
+index_train <- caret::createDataPartition(df$Species,
+                                          p = 0.8,
+                                          list = FALSE)
+df_train <- df[index_train,]
+df_test <- df[-index_train,]
+remove(index_train)
+```
+
+
+## Review Preprocessed: PCA
+
+```{r}
+preproc_alg <- caret::preProcess(df_train,
+                                 thresh = 0.95,
+                                 method = c("BoxCox",
+                                            "center",
+                                            "scale",
+                                            "pca"))
+preproc_alg
+```
+
+
+### Create and Review PCAs
+
+```{r}
+df_train_prpr <- stats::predict(preproc_alg, df_train)
+head(df_train_prpr)
+```
+
+
+### Loadings
+
+```{r}
+preproc_alg$rotation
+```
+
+```{r}
+preproc_alg$std
+```
+
+
+### Base R PCA Plots
+
+what - the type of plot: "**scree**" produces a bar chart of standard deviations:
+
+```{r}
+df_prcomp <- prcomp(df_train[,-5], center = TRUE,scale. = TRUE)
+plot(df_prcomp)
+```
+
+
+### Scree Plot II. - ggplot
+
+```{r}
+#calculate total variance explained by each principal component
+var_explained <- df_prcomp$sdev^2 / sum(df_prcomp$sdev^2)
+#create scree plot
+library(ggplot2)
+qplot(c(1:length(var_explained)), var_explained) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+remove(var_explained)
+```
+
+
+### Scree Plot III. - caret-based
+
+```{r}
+var_explained_caret <-
+        sapply(df_train_prpr[,-1], sd) / sum(sapply(df_train_prpr[,-1], sd))
+var_explained_caret
+sum(var_explained_caret)
+remove(var_explained_caret)
+```
+
+
+### PCA plots
+
+```{r}
+pcaCharts <- function(x) {
+        x.var <- x$sdev ^ 2
+        x.pvar <- x.var / sum(x.var)
+        print("proportions of variance:")
+        print(x.pvar)
+        par(mfrow = c(2, 2))
+        plot(
+                x.pvar,
+                xlab = "Principal component",
+                ylab = "Proportion of variance explained",
+                ylim = c(0, 1),
+                type = 'b'
+        )
+        plot(
+                cumsum(x.pvar),
+                xlab = "Principal component",
+                ylab = "Cumulative Proportion of variance explained",
+                ylim = c(0, 1),
+                type = 'b'
+        )
+        screeplot(x)
+        screeplot(x, type = "l")
+        par(mfrow = c(1, 1))
+}
+
+pcaCharts(df_prcomp)
+remove(df_prcomp)
+remove(pcaCharts)
+```
+
+
+### SPLOM PCAs (first 3)
+
+```{r}
+# df_train$vs_factor <- as.factor(ifelse(df_train$vs == 0, "v_shaped", "straight"))
+panelRange <- extendrange(df_train_prpr[, 2:3])
+library(ellipse)
+upperp <- function(...)
+  {
+    args <- list(...)
+    circ1 <- ellipse(diag(rep(1, 2)), t = 1)
+    panel.xyplot(circ1[,1], circ1[,2],
+                 type = "l",
+                 lty = trellis.par.get("reference.line")$lty,
+                 col = trellis.par.get("reference.line")$col,
+                 lwd = trellis.par.get("reference.line")$lwd)
+    circ2 <- ellipse(diag(rep(1, 2)), t = 2)
+    panel.xyplot(circ2[,1], circ2[,2],
+                 type = "l",
+                 lty = trellis.par.get("reference.line")$lty,
+                 col = trellis.par.get("reference.line")$col,
+                 lwd = trellis.par.get("reference.line")$lwd)
+    circ3 <- ellipse(diag(rep(1, 2)), t = 3)
+    panel.xyplot(circ3[,1], circ3[,2],
+                 type = "l",
+                 lty = trellis.par.get("reference.line")$lty,
+                 col = trellis.par.get("reference.line")$col,
+                 lwd = trellis.par.get("reference.line")$lwd)
+    panel.xyplot(args$x, args$y, groups = args$groups, subscripts = args$subscripts)
+  }
+splom(as.data.frame(df_train_prpr[, 1:3]),
+      groups = df_train_prpr$Species,
+      type = c("p", "g"),
+      as.table = TRUE,
+            lower.panel = function(...){}, 
+      upper.panel = upperp,
+      auto.key = list(columns = 2),
+      prepanel.limits = function(x) panelRange)
+remove(panelRange)
+df_train$vs_factor <- NULL
+```
+
+
+## trainControl() Settings
+
+```{r}
+trainControl()$method
+trainControl()$number
+trainControl()$repeats
+trainControl()$p
+```
+
+```{r eval=FALSE, include=FALSE}
+# all train control settings
+trainControl()
+```
+
+## Distribution of response
+Review distribution of the response variable.
+```{r echo=TRUE}
+ggplot(df_train, aes(x=Species)) +
+geom_bar(fill='red') +  labs(x='Classe Response Distribution')
+```
+
+## PreProcess
+
+## Near Zero Variance Predictors
+
+Identify and remove near-zero-variance predictors as they do not contribute to the identification of patterns in the data. For this purpose we use function caret::nearZeroVar().
+
+```{r echo=TRUE}
+zeroVarIndices <- caret::nearZeroVar(df_train)
+if (!length(zeroVarIndices) == 0) {
+        df_train <- df_train[, -zeroVarIndices]
+}
+remove(zeroVarIndices)
+dim(df_train)
+```
+
+
+## Remove Predictors with too many NAs (missing data)
+```{r echo=TRUE}
+df_train <- df_train[,colMeans(is.na(df_train)) < .9]
+dim(df_train)
+```
+
+
+## Reduce Collinearity
+
+Collinearity is the situation where a pair of predictor variables have a substantial correlation with each other. In general, there are good reasons to avoid data with highly correlated predictors as it can result in highly unstable models and degraded predictive performance.
+
+
+### Plot Correlations
+
+The darker areas in the correlation plot show variables which are correlated with each other.
+
+```{r echo=TRUE}
+trn_numeric <- df_train[,sapply(df_train, is.numeric)]
+correlations <- cor(trn_numeric)
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+```
+
+### Filter pairwise correlations
+```{r echo=TRUE}
+highCorr <- findCorrelation(correlations, cutoff = 0.75)
+# trn_numeric <- trn_numeric[, -highCorr]
+dim(trn_numeric)
+remove(highCorr)
+```
+
+Review correlation plot again:
+
+```{r echo=TRUE}
+correlations <- cor(trn_numeric)
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+remove(correlations)
+remove(trn_numeric)
+```
+
+
+## KNN Model
+
+The model is trained with the KNN model. The standard bootstrap resampling will be applied with the standard setting of 25 repetitions. I preprocess the data in order to remove skewness, to center and to scale the data and to create principal components.
+
+```{r echo=TRUE}
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+# train model
+knn_model <- caret::train(Species ~ .,
+                          data = df_train,
+                          preProc = c("BoxCox", "center", "scale", "pca"),
+                          method = "knn")
+stopCluster(cl)
+# print results
+knn_model
+```
+
+```{r echo=TRUE}
+plot(knn_model)
+```
+
+
+### Test Results on Training Set
+```{r}
+train_knn <- predict(knn_model, df_train)
+valid_conf_mtrx <- confusionMatrix(train_knn, factor(df_train$Species))
+valid_conf_mtrx$table
+```
+
+
+### Predict on the Test Set
+
+```{r echo=TRUE}
+predicted <- predict(knn_model, df_test)
+predicted
+```
+
+
+### Test Results on Test Set
+
+### Confusion Matrix & Co.
+```{r}
+valid_conf_mtrx <- confusionMatrix(predicted, df_test$Species)
+valid_conf_mtrx
+```
+
+# Random Forest
+
+I leave train control on standard settings, i.e. function will run bootstrap resampling with 25 repetitions.
+```{r}
+# initiate parallel processing as the process takes a long time
+library(doParallel)
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+# train the model
+rf_mod_fit <- train(Species ~ .,
+                    data = df_train,
+                    method = "rf")
+stopCluster(cl)
+rf_mod_fit
+```
+
+Plot Random Forest Accuracy by Tuning Parameters
+```{r}
+plot(rf_mod_fit)
+```
+
+## Test Results on Train Set
+```{r}
+train_rf <- predict(rf_mod_fit, df_train)
+conf_mtrx_train <- confusionMatrix(train_rf, df_train$Species)
+conf_mtrx_train
+```
+
+## Test Results on Test Set
+```{r echo=TRUE}
+test_rf <- predict(rf_mod_fit, df_test)
+conf_mtrx_test <- confusionMatrix(test_rf, df_test$Species)
+conf_mtrx_test
+```
