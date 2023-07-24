@@ -22,6 +22,8 @@ library(doParallel)
 df <- iris
 ```
 
+
+
 # Purpose
 
 - Create a kind of template for the future analysis of classification problems, implementing ideas from the books 'Applied Predictive Modeling' and 'Introduction to Statistical Learning'.
@@ -109,12 +111,15 @@ The darker areas in the correlation plot show variables which are correlated wit
 ```{r echo=TRUE}
 # filter on numeric variables (in this case exclude 'mpg' as it represents the outcome, not a predictor)
 predictors <- df[, -c(5)]
-# iris[, !sapply(iris, is.numeric)]
+
 # select non_numeric predictors, to be added back later
 predictors_non_numeric <- predictors[, !sapply(predictors, is.numeric)]
+
 predictors_numeric <- predictors[,sapply(predictors, is.numeric)]
+
 correlations <- cor(predictors_numeric)
-corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+
+corrplot::corrplot(correlations, order = "hclust",tl.cex = 1)
 ```
 
 
@@ -123,7 +128,7 @@ corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
 Removing following predictors:
 
 ```{r}
-highCorr <- findCorrelation(correlations, cutoff = 0.75)
+highCorr <- caret::findCorrelation(correlations, cutoff = 0.75)
 remove(correlations)
 head(predictors_numeric[highCorr])
 ```
@@ -162,7 +167,9 @@ Review correlation plot again after removal of correlated predictors (reduced co
 
 ```{r echo=TRUE}
 correlations <- cor(df[, -c(5)])
+
 corrplot::corrplot(correlations, order = "hclust",tl.cex = 0.5)
+
 remove(correlations)
 remove(predictors)
 ```
@@ -176,14 +183,10 @@ The darker areas should be reduced as a result of having removed correlated pred
 #### Base R
 
 ```{r}
-# TODO continue development here
-# par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
-# plot(lm_df)
-# par(mfrow=c(1,1)) # Change back to 1 x 1
 hist(
         x = df[,1],
         xlab = "Count",
-        main = "Histogram of XXX",
+        main = "Histogram of Sepal.Length",
         breaks = sqrt(nrow(df))
 )
 ```
